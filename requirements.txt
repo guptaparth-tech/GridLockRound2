@@ -1,0 +1,8 @@
+# ParkPulse — minimal, cross-platform dependencies (Windows / macOS / Linux).
+# All have prebuilt wheels on every OS, so `pip install -r requirements.txt`
+# never needs a C/C++ compiler. No GPU, no system libraries required.
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.4
+pyarrow>=15.0
+streamlit>=1.36

@@ -1,0 +1,157 @@
+==============================================================================
+ PARKPULSE — EXPLAINED SIMPLY (and in detail)
+ Flipkart Gridlock Hackathon 2.0 · Round 2 · Theme 1
+ "Poor Visibility on Parking-Induced Congestion"
+==============================================================================
+
+This file explains, in plain language, WHAT we built, WHY we built it this way,
+and HOW every claim is backed by the data or by published research. No prior
+technical background needed. Technical readers: see docs/ for the proofs.
+
+------------------------------------------------------------------------------
+0. THE PROBLEM (in one breath)
+------------------------------------------------------------------------------
+Illegally parked vehicles choke Bengaluru's roads. Enforcement today is
+reactive: officers patrol, write tickets, move on. Nobody can see WHERE the
+worst parking-congestion is, HOW MUCH traffic damage it actually causes, or
+WHETHER enforcement is even working. The challenge asks:
+
+   "How can AI detect illegal-parking hotspots and quantify their impact on
+    traffic flow, to enable targeted enforcement?"
+
+We were given one dataset: 298,450 real parking-violation records logged by
+Bengaluru traffic police (Nov 2023 – Apr 2024). Each record has a location, a
+time, a vehicle type, the kind of violation, the officer/device that filed it,
+and a review status (approved / rejected / unverified).
+
+------------------------------------------------------------------------------
+1. THE ONE INSIGHT THAT CHANGES EVERYTHING
+------------------------------------------------------------------------------
+Most teams will treat this data as "a map of illegal parking" and build a model
+that says "lots of tickets here -> send patrols here." We discovered that is a
+TRAP, and we can prove it from the data:
+
+   * 85.5% of all 298,450 records were filed in a single 03:00–13:00 morning
+     shift. Only 1.44% were filed in the evening (15:00–23:00) — which is
+     exactly when parking and congestion are WORST.
+   * The number of patrol devices active each hour rises and falls in lockstep
+     with the number of tickets.
+
+So the data does NOT tell you where illegal parking happens. It tells you
+WHERE THE OFFICERS WERE STANDING. The "hotspots" are partly just the patrol
+roster. If you build "predict tickets -> send patrols," you send officers back
+to where they already were, they write more tickets there, the model gets even
+more confident about those spots... and a blind spot becomes permanent.
+
+This is a known, documented danger called a "feedback loop," proven for police
+data by Lum & Isaac (2016) and Ensign et al. (2017). We are the only approach
+that (a) PROVES the bias exists in THIS dataset and (b) CORRECTS for it.
+
+------------------------------------------------------------------------------
+2. WHAT PARKPULSE ACTUALLY DOES (5 parts, A–E)
+------------------------------------------------------------------------------
+Think of it as a pipeline. Raw records go in; an enforcement decision-tool
+comes out. Each part answers a specific question.
+
+PART C — "How bad is each hotspot, really?"  (Congestion-Impact Score)
+   Counting tickets is misleading (see Part 1). Instead we score each ~500 m
+   zone by its likely CONGESTION COST, using only signals already in the data:
+      - how many violations + how chronic (active on many days),
+      - the ROAD TYPE parsed from the address (main road / flyover / ring road
+        block traffic far more than a quiet lane),
+      - nearby TRIP-GENERATORS parsed from the address (market, metro, mall,
+        hospital — these pull in cars that block junctions),
+      - VEHICLE SIZE (a lorry blocks more lane than a scooter),
+      - VIOLATION SEVERITY (footpath / junction parking is worse than generic).
+   The result is a single 0–100 "Congestion-Impact Score" per zone.
+   WHY THE WEIGHTS ARE DEFENSIBLE: research shows on-street parking cuts road
+   capacity ~24%, and illegal double-parking adds ~26% more (≈50% total loss),
+   and illegal parking is the 3rd-largest cause of US urban congestion (~47M
+   lost vehicle-hours/year). So weighting by lane-blockage is grounded, not
+   guessed. We also test the score against different weightings to show the
+   ranking is stable, and we say honestly: this is a transparent PROXY, because
+   the dataset contains no measured speed or delay.
+
+PART A — "Where are we actually blind?"  (De-biased demand + Blind-spots)
+   This is the flagship. We separate "true parking pressure" from "how much we
+   patrolled." For each zone we compute tickets PER PATROL-UNIT (per device),
+   so a zone that yields many violations with little patrolling is flagged as
+   genuinely high-demand, while an over-patrolled zone is down-weighted.
+   Then we produce a BLIND-SPOT MAP: zones with high impact but almost no
+   patrol presence and no evening coverage — the places enforcement is missing
+   right now (typically peripheral corridors and the entire evening window).
+   We also include a small SIMULATION showing that the naive "chase the counts"
+   policy makes enforcement more and more lopsided over time (a fairness metric
+   climbs from 0.00 to 0.38) — a live demonstration of the trap in Part 1.
+
+PART B/D — "Who/where will re-offend next?"  (Near-repeat + Watchlist)
+   The data shows offending is habitual: repeat-offender vehicles are 15% of
+   plates but cause 35% of all tickets; 48% re-offend within 7 days and ~49%
+   within 200 m of their last spot. We build a model that ranks vehicles by
+   their risk of re-offending in the next 30 days and names their likely spot.
+   On held-out data, the top 10% of flagged vehicles re-offend at ~3.2x the
+   base rate. (Plates are anonymised, so this is a SCORING METHOD demo, never
+   real-person targeting.)
+
+PART E — "What should we DO about each hotspot?"  (Archetypes -> policy)
+   Not every hotspot needs the same fix. We group hotspots into 4 functional
+   types and attach the right lever to each:
+      - Footpath / main-road encroachment -> bollards + pedestrian enforcement
+      - Commercial / loading corridor      -> timed loading bays + off-peak windows
+      - Two-wheeler spillover              -> add two-wheeler parking supply
+      - CBD car parking                    -> occupancy-based paid parking
+   This turns "here's a hotspot" into "here's the specific action."
+
+------------------------------------------------------------------------------
+3. WHAT YOU SEE IN THE DEMO (app.py)
+------------------------------------------------------------------------------
+A browser dashboard with tabs:
+   1. De-biased demand     — true pressure ranking + map (not just raw counts)
+   2. Blind-spots          — high-impact zones enforcement is missing, on a map
+   3. Impact (CIS)         — congestion-impact ranking, filterable by station
+   4. Archetypes           — each hotspot type and its recommended intervention
+   5. Vehicle watchlist    — ranked re-offense risk with likely location
+   6. Notes                — the honest limitations, in plain sight
+
+------------------------------------------------------------------------------
+4. WHY THIS WINS (vs the obvious solution)
+------------------------------------------------------------------------------
+   * It answers the EXACT question asked: detect hotspots (Parts C/A), quantify
+     impact on traffic flow (Part C, research-calibrated), enable targeted
+     enforcement (Parts A/E + watchlist).
+   * It is HONEST about the data's bias and corrects for it — most parking-
+     prediction work ignores this; we prove it and fix it.
+   * It uses ONLY the provided dataset (rule-compliant). Road-type and points-
+     of-interest are read out of the address text already in the data — no
+     external data is required to run.
+   * It produces ACTIONS (patrol where we're blind, intervention per hotspot
+     type, re-offense watchlist), not just a pretty heatmap.
+
+------------------------------------------------------------------------------
+5. HONEST LIMITATIONS (we state these openly)
+------------------------------------------------------------------------------
+   * No measured congestion in the data -> impact is a transparent proxy.
+   * Timestamps are anonymised to the hour (seconds are a constant), so we use
+     date+hour only and never claim sub-minute precision.
+   * Corrected "demand" is decision-support, not ground truth.
+   * Plates are anonymised -> watchlist is a methodology demo.
+
+------------------------------------------------------------------------------
+6. HOW TO RUN (short version — full details in README.md)
+------------------------------------------------------------------------------
+   1. Install Python 3.9–3.12.
+   2. In this folder:  pip install -r requirements.txt
+   3. Build results:   python run_all.py        (~15 seconds)
+   4. Open the demo:   streamlit run app.py
+   (Or just double-click run.bat on Windows / run "bash run.sh" on Mac/Linux.)
+   Results are already pre-built in outputs/processed/, so step 4 works even if
+   you skip step 3.
+
+------------------------------------------------------------------------------
+7. WHERE THE EVIDENCE LIVES
+------------------------------------------------------------------------------
+   docs/findings.md        — the 7 provable data findings (with the statistics)
+   docs/novel_solutions.md — why the naive approach fails; the novel directions
+   docs/research.md        — cited papers + verification of every headline number
+   docs/concrete_idea.md   — the full idea write-up, part by part
+==============================================================================
